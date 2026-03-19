@@ -233,18 +233,21 @@ void abcFilterSNP::run(funkyPars *pars){
 	pars->keepSites[s] = 0;
 
       funkyHWE *hweStruct = (funkyHWE *) pars->extras[9];//THIS IS VERY NASTY! the ordering within general.cpp is now important
-      double lrt = 2*hweStruct->like0[s]-2*hweStruct->likeF[s];
-      double pval;
-      if(std::isnan(lrt))
-	pval=lrt;
-      else if(lrt<0)
-	pval =1;
-      else
-	pval =1- chi.cdf(lrt);
-      ksprintf(&persite,"%f:%e\t",lrt,pval);
-      //   ksprintf(&persite,"%f:%e\t",lrt,pval);
-      if(hwe_pval!=-1 && pval<hwe_pval)
-	pars->keepSites[s] = 0;
+      if(hweStruct){
+	double lrt = 2*hweStruct->like0[s]-2*hweStruct->likeF[s];
+	double pval;
+	if(std::isnan(lrt))
+	  pval=lrt;
+	else if(lrt<0)
+	  pval =1;
+	else
+	  pval =1- chi.cdf(lrt);
+	ksprintf(&persite,"%f:%e\t",lrt,pval);
+	if(hwe_pval!=-1 && !std::isnan(pval) && pval<hwe_pval)
+	  pars->keepSites[s] = 0;
+      } else {
+	ksprintf(&persite,"NA:NA\t");
+      }
 
       double Z = baseQbias(chk->nd[s],pars->nInd,refToInt[pars->major[s]],refToInt[pars->minor[s]]);
       ksprintf(&persite,"%f:%e\t",Z,2*phi(Z));
@@ -260,7 +263,7 @@ void abcFilterSNP::run(funkyPars *pars){
 
       Z = edgebias(chk->nd[s],pars->nInd,refToInt[pars->major[s]],refToInt[pars->minor[s]]);
       ksprintf(&persite,"%f:%e",Z,2*phi(Z));
-      if(2*phi(Z)<edge_pval)
+      if(edge_pval!=-1 && 2*phi(Z)<edge_pval)
 	pars->keepSites[s] = 0;
 
       genoCalls *gcw =(genoCalls *) pars->extras[11];
@@ -295,22 +298,26 @@ void abcFilterSNP::run(funkyPars *pars){
 	}
 
 	double tsum= cnts[0]+cnts[1]+cnts[2]+cnts[3];
-	double fA=(cnts[0]+cnts[2])/tsum;
-	double fa=(cnts[1]+cnts[3])/tsum;
 	int n = tsum;
 	ksprintf(&persite,"\t%d %d %d %d %d\t",cnts[0],cnts[1],cnts[2],cnts[3],n);
 
-	double lrt = 2*tsum*(fA-0.5)*(fA-0.5) + 2*tsum*(fa-0.5)*(fa-0.5);
-	double pval;
-	if(std::isnan(lrt))
-	  pval=lrt;
-	else if(lrt<0)
-	  pval =1;
-	else
-	  pval =1- chi.cdf(lrt);
-	ksprintf(&persite,"%f:%e\t",lrt,pval);
-	if(hetbias_pval!=-1&&pval<hetbias_pval)
-	  pars->keepSites[s]=0;
+	if(tsum>0){
+	  double fA=(cnts[0]+cnts[2])/tsum;
+	  double fa=(cnts[1]+cnts[3])/tsum;
+	  double lrt = 2*tsum*(fA-0.5)*(fA-0.5) + 2*tsum*(fa-0.5)*(fa-0.5);
+	  double pval;
+	  if(std::isnan(lrt))
+	    pval=lrt;
+	  else if(lrt<0)
+	    pval =1;
+	  else
+	    pval =1- chi.cdf(lrt);
+	  ksprintf(&persite,"%f:%e\t",lrt,pval);
+	  if(hetbias_pval!=-1 && !std::isnan(pval) && pval<hetbias_pval)
+	    pars->keepSites[s]=0;
+	} else {
+	  ksprintf(&persite,"nan:nan\t");
+	}
       }
 
       
@@ -378,7 +385,12 @@ void abcFilterSNP::getOptions(argStruct *arguments){
 abcFilterSNP::abcFilterSNP(const char *outfiles,argStruct *arguments,int inputtype){
   doSnpStat=0;
   outfileZ = NULL;
-  edge_pval=mapQ_pval=sb_pval=hwe_pval=qscore_pval=hetbias_pval-1;
+  edge_pval = -1;
+  mapQ_pval = -1;
+  sb_pval = -1;
+  hwe_pval = -1;
+  qscore_pval = -1;
+  hetbias_pval = -1;
   if(arguments->argc==2){
     if(!strcasecmp(arguments->argv[1],"-doSnpStat")||!strcasecmp(arguments->argv[1],"-doPost")){
       printArg(stdout);

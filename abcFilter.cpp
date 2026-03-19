@@ -116,7 +116,13 @@ void abcFilter::run(funkyPars *p){
     }else{
       for(int s=0;s<p->numSites;s++){
 	//	fprintf(stderr,"p->posi:%d keeppre:%d\n",p->posi[s]+1,p->keepSites[s]);
-	if(strict&&fl->keeps[p->posi[s]]==0){
+	int pos = p->posi[s];
+	int L = header->target_len[p->refId];
+	if(pos < 0 || pos >= L){
+	  p->keepSites[s] = 0;
+	  continue;
+	}
+	if(strict && fl->keeps[pos]==0){
 	  //	  fprintf(stderr,"never here\n");
 	  p->keepSites[s] =0;
 	}

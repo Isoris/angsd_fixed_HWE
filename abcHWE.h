@@ -30,6 +30,7 @@ private:
   double maxHWEpval;
   double maxHetFreq;//nspope;hetFilter
   double minHetFreq;//nspope;hetFilter
+  int doHetFreq; // output hetFreq column without filtering
   int testMe;
   double tolStop;
   double differ(double *x,double *y);

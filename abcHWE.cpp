@@ -43,6 +43,7 @@ void abcHWE::getOptions(argStruct *arguments){
   maxHWEpval = angsd::getArg("-maxHWEpval",maxHWEpval,arguments);
   maxHetFreq = angsd::getArg("-maxHetFreq",maxHetFreq,arguments);//nspope;hetFilter
   minHetFreq = angsd::getArg("-minHetFreq",minHetFreq,arguments);//nspope;hetFilter
+  doHetFreq = angsd::getArg("-doHetFreq",doHetFreq,arguments);
   doMajorMinor=angsd::getArg("-doMajorMinor",doMajorMinor,arguments);
   GL=angsd::getArg("-GL",GL,arguments);
   if(arguments->inputtype!=INPUT_VCF_GL && arguments->inputtype!=INPUT_GLF && arguments->inputtype!=INPUT_GLF3 && GL==0){
@@ -73,6 +74,7 @@ abcHWE::abcHWE(const char *outfiles,argStruct *arguments,int inputtype){
   minHWEpval = -1;
   maxHetFreq = -1;//nspope;hetFilter
   minHetFreq = -1;//nspope;hetFilter
+  doHetFreq = 0;
   testMe=0;
   tolStop = 0.00001;
   bufstr.s=NULL;bufstr.l=bufstr.m=0;
@@ -95,7 +97,7 @@ abcHWE::abcHWE(const char *outfiles,argStruct *arguments,int inputtype){
   outfileZ = aio::openFileBG(outfiles,postfix);
 
   //print header
-  if (maxHetFreq != -1 || minHetFreq != -1) //nspope;maxHetFilter
+  if (doHetFreq == 1 || maxHetFreq != -1 || minHetFreq != -1) //nspope;maxHetFilter
   {
     const char *str = "Chromo\tPosition\tMajor\tMinor\thweFreq\tFreq\tF\tLRT\tp-value\thetFreq\n";
     aio::bgzf_write(outfileZ,str,strlen(str));
@@ -143,7 +145,7 @@ void abcHWE::print(funkyPars *pars){
    
     float lrt= 2*hweStruct->like0[s]-2*hweStruct->likeF[s];
   
-    if (maxHetFreq!=-1 || minHetFreq!=-1){//nspope;hetFilter
+    if (doHetFreq==1 || maxHetFreq!=-1 || minHetFreq!=-1){//nspope;hetFilter
       ksprintf(&bufstr,"%s\t%d\t%c\t%c\t%f\t%f\t%f\t%e\t%e\t%f\n",header->target_name[pars->refId],pars->posi[s]+1,intToRef[pars->major[s]],intToRef[pars->minor[s]],hweStruct->freqHWE[s],hweStruct->freq[s],hweStruct->F[s],lrt,hweStruct->pval[s],hweStruct->hetfreq[s]);
     } else {
       ksprintf(&bufstr,"%s\t%d\t%c\t%c\t%f\t%f\t%f\t%e\t%e\n",header->target_name[pars->refId],pars->posi[s]+1,intToRef[pars->major[s]],intToRef[pars->minor[s]],hweStruct->freqHWE[s],hweStruct->freq[s],hweStruct->F[s],lrt,hweStruct->pval[s]);
