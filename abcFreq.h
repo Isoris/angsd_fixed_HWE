@@ -35,6 +35,21 @@ private:
   BGZF *outfileZ;
   BGZF *outfileZ2;
 
+  // --- FILTER AUDIT (Part 3/4 patch) ---
+  int doFilterAudit;          // 0=off, 1=summary only, 2=summary + per-site TSV
+  char *filterAuditFile;      // per-site audit filename (NULL if not set)
+  FILE *auditFP;              // file handle for per-site audit
+  // pipeline audit counters (sequential: count FIRST reason that kills site)
+  long long audit_total_seen;
+  long long audit_dead_before_freq;  // keepSites==0 entering abcFreq filter loop
+  long long audit_dropped_minMaf_low;
+  long long audit_dropped_minMaf_high;
+  long long audit_dropped_snpPval;
+  long long audit_dropped_minInd;
+  long long audit_dropped_triallelic;
+  long long audit_retained;
+  // --- END FILTER AUDIT ---
+
   int doMaf;
 
   double rmTriallelic;

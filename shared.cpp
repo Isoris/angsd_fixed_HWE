@@ -65,9 +65,9 @@ void init(void *arg){
   }
   maxThreads=angsd::getArg("-nThreads",maxThreads,arguments);
   maxThreads=angsd::getArg("-P",maxThreads,arguments);
-  if(maxThreads>10){
-    fprintf(stderr,"\t-> You have choosen to supply a very high number of threads. The number of threads will be capped at 8\n");
-    maxThreads = 8;
+  if(maxThreads>16){
+    fprintf(stderr,"\t-> You have choosen to supply a very high number of threads. The number of threads will be capped at 16\n");
+    maxThreads = 16;
   }
   nQueueSize = angsd::getArg("-nQueueSize",nQueueSize,arguments);
   howOften = angsd::getArg("-howOften",howOften,arguments);

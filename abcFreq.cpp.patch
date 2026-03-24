@@ -1,0 +1,188 @@
+--- angsd_src/angsd_fixed_HWE-master/abcFreq.cpp	2026-03-19 12:22:44.000000000 +0000
++++ output/patches/abcFreq.cpp	2026-03-24 10:17:41.270940970 +0000
+@@ -90,6 +90,9 @@
+   fprintf(argFile,"\t-beagleProb\t%d (Dump beagle style postprobs)\n",beagleProb);
+   fprintf(argFile,"\t-indFname\t%s (file containing individual inbreedcoeficients)\n",indFname);
+   fprintf(argFile,"\t-underFlowProtect\t%d (file containing individual inbreedcoeficients)\n",underflowprotect);
++  fprintf(argFile,"Filter audit:\n");
++  fprintf(argFile,"\t-doFilterAudit\t%d\t(0: off, 1: summary to stderr, 2: summary + per-site TSV)\n",doFilterAudit);
++  fprintf(argFile,"\t-filterAuditFile\t%s\t(Per-site audit output file, requires -doFilterAudit 2)\n",filterAuditFile?filterAuditFile:"(null)");
+   fprintf(argFile,"NB These frequency estimators requires major/minor -doMajorMinor\n");
+ }
+ 
+@@ -219,6 +222,11 @@
+   beagleProb=angsd::getArg("-beagleProb",beagleProb,arguments);
+   minInd=angsd::getArg("-minInd",minInd,arguments);
+ 
++  // --- FILTER AUDIT arguments ---
++  doFilterAudit=angsd::getArg("-doFilterAudit",doFilterAudit,arguments);
++  filterAuditFile=angsd::getArg("-filterAuditFile",filterAuditFile,arguments);
++  // --- END FILTER AUDIT ---
++
+   if(abs(doMaf)==0 &&doPost==0)
+     return;
+   if(inputtype!=INPUT_VCF_GP&&inputtype!=INPUT_BEAGLE&&inputtype!=INPUT_BGEN&&inputtype!=0&&doMajorMinor==0&&inputtype!=INPUT_VCF_GL){
+@@ -303,6 +311,20 @@
+   ifDoAsso = 0;
+   forceMaf = 0;
+ 
++  // --- FILTER AUDIT init ---
++  doFilterAudit = 0;
++  filterAuditFile = NULL;
++  auditFP = NULL;
++  audit_total_seen = 0;
++  audit_dead_before_freq = 0;
++  audit_dropped_minMaf_low = 0;
++  audit_dropped_minMaf_high = 0;
++  audit_dropped_snpPval = 0;
++  audit_dropped_minInd = 0;
++  audit_dropped_triallelic = 0;
++  audit_retained = 0;
++  // --- END FILTER AUDIT init ---
++
+   if(arguments->argc==2){
+     if(!strcasecmp(arguments->argv[1],"-doMaf")||!strcasecmp(arguments->argv[1],"-doPost")){
+       printArg(stdout);
+@@ -379,10 +401,40 @@
+     bufstr.l=0;
+   }
+ 
++  // --- FILTER AUDIT: open per-site audit file if requested ---
++  if(doFilterAudit>=2 && filterAuditFile!=NULL){
++    auditFP = fopen(filterAuditFile,"w");
++    if(auditFP==NULL){
++      fprintf(stderr,"[abcFreq audit] WARNING: could not open audit file: %s\n",filterAuditFile);
++    } else {
++      fprintf(auditFP,"chromo\tposition\tmajor\tminor\tknownEM\tlrt\tnInd_GL\tkeepSites_final\tdrop_reason\tsnp_cutoff_used\tminMaf_used\n");
++    }
++  }
++  // --- END FILTER AUDIT file open ---
++
+ }
+ 
+ 
+ abcFreq::~abcFreq(){
++  // --- FILTER AUDIT: print summary at end of run ---
++  if(doFilterAudit>=1){
++    fprintf(stderr,"[abcFreq audit] ============================================\n");
++    fprintf(stderr,"[abcFreq audit] total_sites_seen=%lld\n",audit_total_seen);
++    fprintf(stderr,"[abcFreq audit] dead_before_freq_filter=%lld\n",audit_dead_before_freq);
++    fprintf(stderr,"[abcFreq audit] dropped_minMaf_low=%lld\n",audit_dropped_minMaf_low);
++    fprintf(stderr,"[abcFreq audit] dropped_minMaf_high=%lld\n",audit_dropped_minMaf_high);
++    fprintf(stderr,"[abcFreq audit] dropped_snpPval=%lld\n",audit_dropped_snpPval);
++    fprintf(stderr,"[abcFreq audit] dropped_minInd=%lld\n",audit_dropped_minInd);
++    fprintf(stderr,"[abcFreq audit] dropped_triallelic=%lld\n",audit_dropped_triallelic);
++    fprintf(stderr,"[abcFreq audit] retained_after_abcFreq=%lld\n",audit_retained);
++    fprintf(stderr,"[abcFreq audit] ============================================\n");
++  }
++  if(auditFP!=NULL){
++    fclose(auditFP);
++    auditFP = NULL;
++  }
++  // --- END FILTER AUDIT summary ---
++
+   if(outfileZ!=NULL){
+     bgzf_close(outfileZ);
+   }
+@@ -596,9 +648,47 @@
+ 
+     
+     for(int s=0;s<pars->numSites;s++){
+-      if(pars->keepSites[s]==0)
++      // --- FILTER AUDIT: count total sites seen ---
++      if(doFilterAudit>=1)
++	audit_total_seen++;
++
++      if(pars->keepSites[s]==0){
++	// --- FILTER AUDIT: site was dead before we got here ---
++	if(doFilterAudit>=1)
++	  audit_dead_before_freq++;
++
++	// --- FILTER AUDIT: per-site output for dead-before-freq sites ---
++	if(doFilterAudit>=2 && auditFP!=NULL){
++	  fprintf(auditFP,"%s\t%d\t%c\t%c\tNA\tNA\t0\t0\tdead_before_freq\t%e\t%f\n",
++		  header->target_name[pars->refId],
++		  pars->posi[s]+1,
++		  intToRef[pars->major[s]],
++		  intToRef[pars->minor[s]],
++		  angsd::to_pval(chisq1,SNP_pval),
++		  minMaf);
++	}
+ 	continue;
++      }
++
++      // --- FILTER AUDIT: evaluate all conditions BEFORE modifying keepSites ---
++      // Save the pre-filter nInd (GL-based count from likeFreq)
++      int nInd_GL = pars->keepSites[s];
++      double site_freq = (freq->freq!=NULL) ? freq->freq[s] : -1.0;
++      double site_lrt = (freq->lrt!=NULL) ? freq->lrt[s] : -1.0;
++
++      // Evaluate each filter independently for audit
++      int fail_minMaf_low = (site_freq >= 0 && site_freq < minMaf) ? 1 : 0;
++      int fail_minMaf_high = (site_freq >= 0 && site_freq > 1.0 - minMaf) ? 1 : 0;
++      int fail_snpPval = 0;
++      if(rmSNPs){
++	fail_snpPval = (doSNP && site_lrt > SNP_pval) ? 1 : 0;
++      } else {
++	fail_snpPval = (doSNP && site_lrt < SNP_pval) ? 1 : 0;
++      }
++      int fail_triallelic = (rmTriallelic && freq->lrt_tri!=NULL && freq->lrt_tri[s] > SNP_pval_tri) ? 1 : 0;
++      int fail_minInd_freq = (minInd > 0 && nInd_GL < minInd) ? 1 : 0;
+ 
++      // --- Apply filters (original logic, unchanged behavior) ---
+       if(freq->freq[s] < minMaf)
+ 	pars->keepSites[s]=0;
+       else if(freq->freq[s] > 1 - minMaf)
+@@ -613,6 +703,52 @@
+       	pars->keepSites[s]=0;
+       if(minInd>0&&pars->keepSites[s]<minInd)
+ 	pars->keepSites[s] = 0;
++
++      // --- FILTER AUDIT: count by FIRST failure reason (sequential pipeline) ---
++      if(doFilterAudit>=1){
++	if(pars->keepSites[s]!=0){
++	  audit_retained++;
++	} else {
++	  // Sequential: count the first reason that would have killed it
++	  if(fail_minMaf_low)
++	    audit_dropped_minMaf_low++;
++	  else if(fail_minMaf_high)
++	    audit_dropped_minMaf_high++;
++	  else if(fail_snpPval)
++	    audit_dropped_snpPval++;
++	  else if(fail_triallelic)
++	    audit_dropped_triallelic++;
++	  else if(fail_minInd_freq)
++	    audit_dropped_minInd++;
++	  else
++	    audit_dropped_minInd++; // fallback: shouldn't happen but catch edge cases
++	}
++      }
++
++      // --- FILTER AUDIT: per-site output ---
++      if(doFilterAudit>=2 && auditFP!=NULL){
++	const char *reason = "PASS";
++	if(pars->keepSites[s]==0){
++	  if(fail_minMaf_low) reason = "minMaf_low";
++	  else if(fail_minMaf_high) reason = "minMaf_high";
++	  else if(fail_snpPval) reason = "snpPval";
++	  else if(fail_triallelic) reason = "triallelic";
++	  else if(fail_minInd_freq) reason = "minInd_GL";
++	  else reason = "unknown";
++	}
++	fprintf(auditFP,"%s\t%d\t%c\t%c\t%f\t%f\t%d\t%d\t%s\t%e\t%f\n",
++		header->target_name[pars->refId],
++		pars->posi[s]+1,
++		intToRef[pars->major[s]],
++		intToRef[pars->minor[s]],
++		site_freq,
++		site_lrt,
++		nInd_GL,
++		pars->keepSites[s],
++		reason,
++		angsd::to_pval(chisq1,SNP_pval),
++		minMaf);
++      }
+     }
+   }
+   if(doPost) {
